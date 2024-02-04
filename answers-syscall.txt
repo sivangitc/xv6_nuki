@@ -1,0 +1,17 @@
+usertrap called syscall
+
+its 7 and it represents the system call exec
+
+The printed sstatus is 0x22.
+The spp bit (8) is 0 so the previous privilege level was user
+
+80001ff6:	00002683	lw	a3,0(zero) # 0 <_entry-0x80000000>
+a3 is num
+
+it crashes because 0 is one of the unused addresses so it is not mapped
+the scause is d and it says that it means Load page fault which makes sense because we are trying to read from a page that doesnt exist
+
+
+initcode was running with pid 1
+
+
