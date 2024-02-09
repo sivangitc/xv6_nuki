@@ -71,14 +71,14 @@ sys_sleep(void)
 }
 
 
-//#ifdef LAB_PGTBL
+#ifdef LAB_PGTBL
 int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
   uint64 va;
   int npages;
-  uint64 pbitmask; // pointer to unsigned int
+  uint64 pbitmask = 0; // pointer to unsigned int
 
   unsigned int bitmask = 0;
 
@@ -86,29 +86,25 @@ sys_pgaccess(void)
   argint(1, &npages);
   argaddr(2, &pbitmask);
 
-  printf("va: %p numpages: %d\n", va, npages);
-
   pagetable_t pagetable = myproc()->pagetable;
-  for (int i = 0; i < npages && i < 32; i++)
+  for (int i = 0; i < npages && i < 64; i++)
   {
-    va = va + PGSIZE * i;
-    // check if accessed
     pte_t* pte = walk(pagetable, va, 0);
+    va = va + PGSIZE;
     if (pte == 0 || *pte == 0)
       continue;
-    printf("pte %p\n", *pte);
-    if (*pte & (PTE_A | PTE_V))
-      bitmask += (1L << i);
-    
+    if ((*pte & PTE_A) && (*pte & PTE_V))
+    {
+      bitmask = bitmask | (1L << i);
+      *pte = *pte ^ PTE_A;
+    }
   }
-  //bitmask = (1 << 1) | (1 << 2) | (1 << 30);
-  printf("bitmask %x\n", bitmask);
 
   if (copyout(myproc()->pagetable, pbitmask, (char*)&bitmask, sizeof(bitmask)) < 0)
     return -1;
   return 0;
 }
-//#endif
+#endif
 
 uint64
 sys_kill(void)
