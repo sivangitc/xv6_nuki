@@ -1,0 +1,12 @@
+page 0:
+the flags are 0x1b which is RXU it is the text - the code
+
+page 2:
+the flags are 0x7 which is RW so it is the trapframe
+
+page 1:
+the flags are 0x17 RWU so it could be read/written by user
+
+page third to last:
+the flags are 0x13 which is RU so it is readable and by user too
+
