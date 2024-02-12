@@ -36,17 +36,17 @@ argraw(int n)
   struct proc *p = myproc();
   switch (n) {
   case 0:
-    return p->trapframe->a0;
+    return (uint64)(p->trapframe->a0);
   case 1:
-    return p->trapframe->a1;
+    return (uint64)(p->trapframe->a1);
   case 2:
-    return p->trapframe->a2;
+    return (uint64)(p->trapframe->a2);
   case 3:
-    return p->trapframe->a3;
+    return (uint64)(p->trapframe->a3);
   case 4:
-    return p->trapframe->a4;
+    return (uint64)(p->trapframe->a4);
   case 5:
-    return p->trapframe->a5;
+    return (uint64)(p->trapframe->a5);
   }
   panic("argraw");
   return -1;
@@ -101,6 +101,8 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
+extern uint64 sys_sigalarm(void);
+extern uint64 sys_sigreturn(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -126,6 +128,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_sigalarm] sys_sigalarm,
+[SYS_sigreturn] sys_sigreturn
 };
 
 void

@@ -1,0 +1,13 @@
+registers a2, a1, a0 contain arguments and a2 contains 13
+
+the call is in line 26 - li a1,12 because the compiler inlined the function because its return value is known in compile time so it just puts it there instead of calling f. In there is also the call for g.
+
+
+printf is at 642
+38 because its the next instruction to be executed after the call completes
+
+the output is He110 World
+we need to change i to 0x726c6400
+we dont need to change the number because it's just change of base the number will look the same no matter how it's stored
+
+a garbage number because printf will assume we have 2 registers with the arguments so the second will just contain what was there before
