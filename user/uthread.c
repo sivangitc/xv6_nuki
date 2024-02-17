@@ -10,15 +10,50 @@
 #define STACK_SIZE  8192
 #define MAX_THREAD  4
 
+static inline uint64
+r_ra()
+{
+  uint64 x;
+  asm volatile("mv %0, ra" : "=r" (x) );
+  return x;
+}
+
+static inline uint64
+r_sp()
+{
+  uint64 x;
+  asm volatile("mv %0, sp" : "=r" (x) );
+  return x;
+}
+
+struct context {
+  uint64 ra;
+  uint64 sp;
+
+  // callee-saved
+  uint64 s0;
+  uint64 s1;
+  uint64 s2;
+  uint64 s3;
+  uint64 s4;
+  uint64 s5;
+  uint64 s6;
+  uint64 s7;
+  uint64 s8;
+  uint64 s9;
+  uint64 s10;
+  uint64 s11;
+};
 
 struct thread {
-  char       stack[STACK_SIZE]; /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE */
+  char       stack[STACK_SIZE]; /* the thread's stack */
+  struct context context;
 };
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
-extern void thread_switch(uint64, uint64);
-              
+extern void thread_switch(struct context*, struct context*);
+            
 void 
 thread_init(void)
 {
@@ -28,20 +63,25 @@ thread_init(void)
   // again, because its state is set to RUNNING, and thread_schedule() selects
   // a RUNNABLE thread.
   current_thread = &all_thread[0];
-  current_thread->state = RUNNING;
+  (*current_thread).state = RUNNING;
+  struct thread* t = current_thread;
+  memset(&(t->context), 0, sizeof(t->context));
+  t->context.ra = r_ra();
+  t->context.sp = r_sp();
 }
 
 void 
 thread_schedule(void)
 {
   struct thread *t, *next_thread;
-
+ 
   /* Find another runnable thread. */
   next_thread = 0;
   t = current_thread + 1;
+
   for(int i = 0; i < MAX_THREAD; i++){
     if(t >= all_thread + MAX_THREAD)
-      t = all_thread;
+        t = all_thread;
     if(t->state == RUNNABLE) {
       next_thread = t;
       break;
@@ -62,8 +102,11 @@ thread_schedule(void)
      * Invoke thread_switch to switch from t to next_thread:
      * thread_switch(??, ??);
      */
+    thread_switch(&t->context, &next_thread->context);
   } else
+  {
     next_thread = 0;
+  }
 }
 
 void 
@@ -76,6 +119,10 @@ thread_create(void (*func)())
   }
   t->state = RUNNABLE;
   // YOUR CODE HERE
+  // make it run on its own stack
+  memset(&(t->context), 0, sizeof(t->context));
+  t->context.ra = (uint64)func;
+  t->context.sp = (uint64)(t->stack + STACK_SIZE);
 }
 
 void 
@@ -92,10 +139,14 @@ void
 thread_a(void)
 {
   int i;
+
   printf("thread_a started\n");
+  
   a_started = 1;
   while(b_started == 0 || c_started == 0)
+  {
     thread_yield();
+  }
   
   for (i = 0; i < 100; i++) {
     printf("thread_a %d\n", i);
