@@ -364,6 +364,18 @@ sys_open(void)
     itrunc(ip);
   }
 
+  if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW))
+  {
+    char buf[256];
+    if (read(fd, buf, 256) < 0)
+    {
+      iunlock(ip);
+      end_op();
+      return -1;    
+    }
+    open()
+  }
+
   iunlock(ip);
   end_op();
 
@@ -501,5 +513,12 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+
+uint64
+sys_symlink(char *target, char *path)
+{
   return 0;
 }
