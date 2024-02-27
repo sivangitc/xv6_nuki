@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "buf.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -322,7 +323,8 @@ sys_open(void)
       end_op();
       return -1;
     }
-  } else {
+  } 
+  else {
     if((ip = namei(path)) == 0){
       end_op();
       return -1;
@@ -339,6 +341,42 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW))
+  {
+    char buf[MAXPATH];
+    struct buf *bp;
+    int cnt = 0;
+
+    iunlockput(ip);
+
+    while (cnt < 10)
+    {
+      bp = bread(ip->dev, ip->addrs[0]);
+      strncpy(buf, (const char*) bp->data, MAXPATH);
+      brelse(bp);
+
+
+      if((ip = namei(buf)) == 0){
+        end_op();
+        return -1;
+      }
+
+      if (ip->type != T_SYMLINK)
+        break;
+
+      cnt++;
+    }
+    ilock(ip);
+    
+    if (cnt >= 10)
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -362,18 +400,6 @@ sys_open(void)
 
   if((omode & O_TRUNC) && ip->type == T_FILE){
     itrunc(ip);
-  }
-
-  if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW))
-  {
-    char buf[256];
-    if (read(fd, buf, 256) < 0)
-    {
-      iunlock(ip);
-      end_op();
-      return -1;    
-    }
-    open()
   }
 
   iunlock(ip);
@@ -517,8 +543,35 @@ sys_pipe(void)
 }
 
 
+// char *target, char *path
 uint64
-sys_symlink(char *target, char *path)
+sys_symlink(void)
 {
+  char path[MAXPATH], target[MAXPATH];
+  struct inode *ip;
+  int n;
+  struct buf* bp;
+
+  if((n = argstr(1, path, MAXPATH)) < 0)
+    return -1;
+
+  if((n = argstr(0, target, MAXPATH)) < 0)
+    return -1;
+
+  begin_op();
+
+  ip = create(path, T_SYMLINK, 0, 0);
+  if(ip == 0){
+    end_op();
+    return -1;
+  }
+
+  
+  bp = bread(ip->dev, ip->addrs[0]);
+  strncpy((char*) bp->data, target, MAXPATH);
+  brelse(bp);
+
+  iunlockput(ip);
+  end_op();
   return 0;
 }
