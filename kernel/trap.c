@@ -65,6 +65,13 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 15) { // store page fault, maybe cow
+    pagetable_t pgtbl = p->pagetable;
+    uint64 va = PGROUNDDOWN( r_stval() );
+
+    if (moo(pgtbl, va) != 0)
+      setkilled(p);
+    
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

@@ -155,6 +155,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
       return -1;
     if(*pte & PTE_V)
       panic("mappages: remap");
+    inc_refs(pa);
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -183,10 +184,14 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
+    
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
+    } else {
+      dec_refs(PTE2PA(*pte));
     }
+    
     *pte = 0;
   }
 }
@@ -308,22 +313,34 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
+
+    if (*pte & PTE_W)
+    {
+      //*pte = *pte ^ PTE_W;
+      *pte &= ~PTE_W;
+      *pte = *pte | PTE_C;
+    }
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
+    
+    /*
     if((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    */
+
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0)
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      kfree((void*)pa);
       goto err;
     }
+    
   }
   return 0;
 
@@ -352,15 +369,29 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t* pte;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+
+    if (va0 >= MAXVA)
       return -1;
+    pte = walk(pagetable, va0, 0);
+
+    if(pa0 == 0 || pte == 0)
+      return -1;
+      
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+    
+    if (*pte & PTE_C)
+    {
+      moo(pagetable, va0);
+      pa0 = walkaddr(pagetable, va0);
+    }
+    
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
@@ -386,6 +417,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
+
     memmove(dst, (void *)(pa0 + (srcva - va0)), n);
 
     len -= n;
@@ -436,4 +468,50 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// does cow cyber
+// return -1 on fail
+int moo(pagetable_t pgtbl, uint64 va)
+{
+  // cyber
+  pte_t* pte;
+  char* mem;
+
+  va = PGROUNDDOWN(va);
+  if (va >= MAXVA)
+    return -1;
+  if((pte = walk(pgtbl, va, 0)) == 0)
+    panic("moo: shit\n");
+
+  if (*pte & PTE_C)
+  {
+    mem = kalloc();
+    if(mem)
+    {
+      int flags = PTE_FLAGS(*pte);
+      flags = flags & ~PTE_C;
+      flags = flags | PTE_W;
+      memmove(mem, (char*)(PTE2PA(*pte)), PGSIZE);
+      uvmunmap(pgtbl, va, 1, 1);
+      
+      if(mappages(pgtbl, va, PGSIZE, (uint64)mem, flags) != 0){
+        printf("moo(): failed to cyber\n");
+        uvmunmap(pgtbl, 0, va / PGSIZE, 1);
+        kfree(mem);
+        printf("????\n");
+        return -1;
+      }
+    }
+    else {
+      printf("moo(): no space to copy mem\n");
+      return -1;
+    }
+    return 0;
+  
+  } else {
+    printf("moo(): don't write to read only please!\n");
+    return -1;
+  }
+  return -1;
 }
