@@ -104,4 +104,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct vma vmas[16];
+  int nvmas;
 };
+
+void shift_vmas(struct vma vmas[], int idx, int nvmas);

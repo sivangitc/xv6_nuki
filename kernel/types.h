@@ -8,3 +8,13 @@ typedef unsigned int  uint32;
 typedef unsigned long uint64;
 
 typedef uint64 pde_t;
+
+struct vma
+{
+    uint64 va;
+    int len;
+    int perm;
+    int fd;
+    struct file* file;
+    int flags;
+};

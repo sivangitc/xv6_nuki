@@ -26,6 +26,8 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+void exit_unmap(uint64 addr, int len, struct proc* p);
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -145,6 +147,17 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  // init vmas
+  int i;
+  for (i = 0; i < 16; i++)
+  {
+    p->vmas[i].fd = -1;
+    p->vmas[i].len = 0;
+    p->vmas[i].perm = 0;
+    p->vmas[i].va = 0;
+  }
+  p->nvmas = 0;
 
   return p;
 }
@@ -301,11 +314,12 @@ fork(void)
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
-
+  
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
-    if(p->ofile[i])
+    if(p->ofile[i]) {
       np->ofile[i] = filedup(p->ofile[i]);
+    }
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
@@ -321,6 +335,19 @@ fork(void)
   acquire(&np->lock);
   np->state = RUNNABLE;
   release(&np->lock);
+
+  np->nvmas = p->nvmas;
+  for (i = 0; i < np->nvmas; i++)
+  {
+    np->vmas[i].fd = p->vmas[i].fd;
+    np->vmas[i].file = p->vmas[i].file;
+    np->vmas[i].flags = p->vmas[i].flags;
+    np->vmas[i].len = p->vmas[i].len;
+    np->vmas[i].va = p->vmas[i].va;
+    np->vmas[i].perm = p->vmas[i].perm;
+    if (np->vmas[i].file != 0)
+      filedup(np->vmas[i].file);
+  }
 
   return pid;
 }
@@ -350,6 +377,15 @@ exit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  for (int i = 0; i < 16; i++)
+  {
+    struct vma v = p->vmas[i];
+    if (v.file == 0)
+      continue;
+    
+    exit_unmap(p->vmas[i].va, p->vmas[i].len, p);
+  }
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -680,4 +716,77 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+
+void shift_vmas(struct vma vmas[], int idx, int nvmas)
+{
+  for (int i = idx; i < nvmas - 1; i++)
+  {
+    vmas[i].fd = vmas[i+1].fd;
+    vmas[i].file = vmas[i+1].file;
+    vmas[i].len = vmas[i+1].len;
+    vmas[i].va = vmas[i+1].va;
+    vmas[i].perm = vmas[i+1].perm;
+    vmas[i].flags = vmas[i+1].flags;
+  }
+  if (nvmas < 16)
+  {
+    vmas[nvmas].fd = 0;
+    vmas[nvmas].file = 0;
+    vmas[nvmas].len = 0;
+    vmas[nvmas].va = 0;
+    vmas[nvmas].perm = 0;
+    vmas[nvmas].flags = 0;
+  }
+}
+
+void clear_vma(struct vma vmas[], int idx)
+{
+  vmas[idx].fd = 0;
+  vmas[idx].file = 0;
+  vmas[idx].len = 0;
+  vmas[idx].va = 0;
+  vmas[idx].perm = 0;
+  vmas[idx].flags = 0;
+}
+
+void exit_unmap(uint64 addr, int len, struct proc* p)
+{
+  pagetable_t pgtbl = p->pagetable;
+
+  addr = PGROUNDDOWN(addr);
+  int bytes_deleted = (len / PGSIZE) * PGSIZE;
+
+  int idx = 0;
+  for (idx = 0; idx < 16; idx++) {
+    if (addr <= p->vmas[idx].va + p->vmas[idx].len && p->vmas[idx].va <= addr)
+      break;
+  }
+  if (idx >= 16 || idx < 0)
+    return;
+  
+  // map shared
+  if (p->vmas[idx].flags & 0x01) {
+    write_pages(p->vmas[idx].file, addr, bytes_deleted, addr - p->vmas[idx].va);
+  }
+  
+  rref(p->vmas[idx].file, bytes_deleted);
+  if (bytes_deleted >= p->vmas[idx].len) {
+    // DELETED ALL
+    if (refs(p->vmas[idx].file) <= 1)
+      p->ofile[p->vmas[idx].fd] = 0;
+    if (refs(p->vmas[idx].file))
+      fileclose(p->vmas[idx].file);
+    clear_vma(p->vmas, idx);
+    p->nvmas--;
+  }
+  else {
+    p->vmas[idx].len -= bytes_deleted;
+    if (p->vmas[idx].va == addr) {
+      p->vmas[idx].va += bytes_deleted;
+    }
+  }
+
+  uvmunmap(pgtbl, addr, len / PGSIZE, 1);
 }

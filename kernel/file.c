@@ -180,3 +180,65 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+void rref(struct file* f, int off)
+{
+  f->off += off;
+}
+
+int refs(struct file* f)
+{
+  return f->ref;
+}
+
+int get_prot(struct file* f)
+{
+  // sorry this looks bad :(
+  int p = 0;
+  if (f->writable)
+    p = p | 0x2;
+  return p;
+}
+
+int read_page(char* mem, struct file* f, int n, uint64 va, int offset)
+{
+  int r = 0;
+
+  if (n > PGSIZE)
+    n = PGSIZE;
+
+  if(f->type == FD_INODE){
+    ilock(f->ip);
+    r = readi(f->ip, 1, va, offset, n);
+    iunlock(f->ip);
+  }
+
+  return r;
+}
+
+int write_pages(struct file *f, uint64 addr, int n, int offset)
+{
+  int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
+  int i = 0;
+  int r = 0;
+
+  while(i < n){
+    int n1 = n - i;
+    if(n1 > max)
+      n1 = max;
+
+    begin_op();
+    ilock(f->ip);
+    r = writei(f->ip, 1, addr + i, f->off + offset + i, n1);
+    iunlock(f->ip);
+    end_op();
+
+    if(r != n1){
+      // error from writei
+      break;
+    }
+    
+    i += r;
+  }
+
+  return i;
+}

@@ -33,6 +33,11 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+int             read_page(char* mem, struct file* f, int n, uint64 va, int offset);
+int             write_pages(struct file *f, uint64 addr, int n, int offset);
+int get_prot(struct file* f);
+void rref(struct file* f, int );
+int refs(struct file* f);
 
 // fs.c
 void            fsinit(int);

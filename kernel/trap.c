@@ -29,6 +29,8 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+int cybre(pagetable_t pgtbl, struct vma vmas[]);
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -65,6 +67,13 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    // do CYBER
+    if (cybre(p->pagetable, p->vmas) != 0) {
+      printf("killed\n");
+      setkilled(p);
+    }
+    
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -217,5 +226,45 @@ devintr()
   } else {
     return 0;
   }
+}
+
+
+
+
+
+int cybre(pagetable_t pgtbl, struct vma vmas[])
+{
+  uint64 va = r_stval();
+  va = PGROUNDDOWN(va);
+
+  // index in vma array
+  int idx = 0;
+  for (idx = 0; idx < 16; idx++) {
+    if (vmas[idx].va <= va && va < vmas[idx].va + vmas[idx].len)
+      break;
+  }
+  if (idx >= 16) {
+    printf("NOT GOOD!\n");
+    return -1;
+  }
+
+  char* mem;
+
+  mem = kalloc();
+  if(mem == 0){
+    uvmdealloc(pgtbl, va, va);
+    return -1;
+  }
+  
+  if(mappages(pgtbl, va, PGSIZE, (uint64)mem, PTE_R|PTE_U|(vmas[idx].perm << 1)) != 0){
+    kfree(mem);
+    uvmdealloc(pgtbl, va, va);
+    return -1;
+  }
+
+  int offset = va - vmas[idx].va;
+  read_page(mem, vmas[idx].file, vmas[idx].len, va, offset);
+
+  return 0;
 }
 

@@ -110,9 +110,11 @@ mmap_test(void)
   // of the file to be mapped. the last argument is the starting
   // offset in the file.
   //
+  
   char *p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
   if (p == MAP_FAILED)
     err("mmap (1)");
+  printf("mmaptest: %c\n", p[0]);
   _v1(p);
   if (munmap(p, PGSIZE*2) == -1)
     err("munmap (1)");
@@ -123,11 +125,14 @@ mmap_test(void)
   // should be able to map file opened read-only with private writable
   // mapping
   p = mmap(0, PGSIZE*2, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+  printf("mmaptest: %c\n", p[0]);
+
   if (p == MAP_FAILED)
     err("mmap (2)");
   if (close(fd) == -1)
     err("close");
   _v1(p);
+  
   for (i = 0; i < PGSIZE*2; i++)
     p[i] = 'Z';
   if (munmap(p, PGSIZE*2) == -1)
@@ -180,6 +185,7 @@ mmap_test(void)
   // written to the file.
   if ((fd = open(f, O_RDWR)) == -1)
     err("open");
+  
   for (i = 0; i < PGSIZE + (PGSIZE/2); i++){
     char b;
     if (read(fd, &b, 1) != 1)
