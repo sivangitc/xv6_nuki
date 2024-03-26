@@ -26,8 +26,6 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
-void exit_unmap(uint64 addr, int len, struct proc* p);
-
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -384,7 +382,7 @@ exit(int status)
     if (v.file == 0)
       continue;
     
-    exit_unmap(p->vmas[i].va, p->vmas[i].len, p);
+    unmap(p, p->pagetable, p->vmas[i].va, p->vmas[i].len);
   }
 
   // Close all open files.
@@ -718,75 +716,66 @@ procdump(void)
   }
 }
 
+void set_vma(struct vma* vma, 
+              int fd, struct file* file, int len, uint64 va, int perm, int flags)
+{
+  vma->fd = fd;
+  vma->file = file;
+  vma->len = len;
+  vma->va = va;
+  vma->perm = perm;
+  vma->flags = flags;
+}
 
 void shift_vmas(struct vma vmas[], int idx, int nvmas)
 {
   for (int i = idx; i < nvmas - 1; i++)
   {
-    vmas[i].fd = vmas[i+1].fd;
-    vmas[i].file = vmas[i+1].file;
-    vmas[i].len = vmas[i+1].len;
-    vmas[i].va = vmas[i+1].va;
-    vmas[i].perm = vmas[i+1].perm;
-    vmas[i].flags = vmas[i+1].flags;
+    set_vma(&vmas[i], vmas[i+1].fd, vmas[i+1].file, vmas[i+1].len, 
+      vmas[i+1].va, vmas[i+1].perm, vmas[i+1].flags);
   }
   if (nvmas < 16)
-  {
-    vmas[nvmas].fd = 0;
-    vmas[nvmas].file = 0;
-    vmas[nvmas].len = 0;
-    vmas[nvmas].va = 0;
-    vmas[nvmas].perm = 0;
-    vmas[nvmas].flags = 0;
-  }
+    set_vma(&vmas[nvmas], 0, 0, 0, 0, 0, 0);
 }
 
-void clear_vma(struct vma vmas[], int idx)
+
+void delete_from_vmas(struct proc* p, uint64 va, int bytes_deleted, int idx)
 {
-  vmas[idx].fd = 0;
-  vmas[idx].file = 0;
-  vmas[idx].len = 0;
-  vmas[idx].va = 0;
-  vmas[idx].perm = 0;
-  vmas[idx].flags = 0;
-}
-
-void exit_unmap(uint64 addr, int len, struct proc* p)
-{
-  pagetable_t pgtbl = p->pagetable;
-
-  addr = PGROUNDDOWN(addr);
-  int bytes_deleted = (len / PGSIZE) * PGSIZE;
-
-  int idx = 0;
-  for (idx = 0; idx < 16; idx++) {
-    if (addr <= p->vmas[idx].va + p->vmas[idx].len && p->vmas[idx].va <= addr)
-      break;
-  }
-  if (idx >= 16 || idx < 0)
-    return;
-  
-  // map shared
-  if (p->vmas[idx].flags & 0x01) {
-    write_pages(p->vmas[idx].file, addr, bytes_deleted, addr - p->vmas[idx].va);
-  }
-  
-  rref(p->vmas[idx].file, bytes_deleted);
   if (bytes_deleted >= p->vmas[idx].len) {
-    // DELETED ALL
+    // deleted all
     if (refs(p->vmas[idx].file) <= 1)
       p->ofile[p->vmas[idx].fd] = 0;
     if (refs(p->vmas[idx].file))
       fileclose(p->vmas[idx].file);
-    clear_vma(p->vmas, idx);
+    shift_vmas(p->vmas, idx, p->nvmas);
     p->nvmas--;
-  }
-  else {
-    p->vmas[idx].len -= bytes_deleted;
-    if (p->vmas[idx].va == addr) {
-      p->vmas[idx].va += bytes_deleted;
-    }
+    return;
   }
 
-  uvmunmap(pgtbl, addr, len / PGSIZE, 1);
+  // still some left
+  p->vmas[idx].len -= bytes_deleted;
+  if (p->vmas[idx].va == va) {
+    p->vmas[idx].va += bytes_deleted;
+  }
+}
+
+
+int unmap(struct proc* p, pagetable_t pgtbl, uint64 va, int len)
+{
+  va = PGROUNDDOWN(va);
+  int bytes_deleted = (len / PGSIZE) * PGSIZE;
+
+  int idx = get_vma_index(p->vmas, va);
+  if (idx == -1)
+    return -1;
+
+  // write back to file if mapped shared
+  if (p->vmas[idx].flags & 0x01) {
+    write_pages(p->vmas[idx].file, va, bytes_deleted, va - p->vmas[idx].va);
+  }
+  
+  increase_offset(p->vmas[idx].file, bytes_deleted);
+  delete_from_vmas(p, va, bytes_deleted, idx);
+  uvmunmap(pgtbl, va, len / PGSIZE, 1);
+  return 0;
 }

@@ -121,6 +121,8 @@ int fill_pgtbl_lazy(pagetable_t pgtbl, uint64 va, int size)
   if (size < 0)
     return -1;
   
+  // copied from mappages but does not mark valid 
+  // will be replaced by mapping to physical page
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
@@ -155,15 +157,11 @@ sys_mmap(void)
   p->sz += len;
 
   filedup(f);
+  // don't allow writing to shared read-only file
   if ((get_prot(f) & prot) == 0 && (prot & 0x2) && (flags & 0x01))
     return -1;
 
-  p->vmas[p->nvmas].fd = fd;
-  p->vmas[p->nvmas].len = len;
-  p->vmas[p->nvmas].va = PGROUNDDOWN(p->sz);
-  p->vmas[p->nvmas].file = f;
-  p->vmas[p->nvmas].perm = prot;
-  p->vmas[p->nvmas].flags = flags;
+  set_vma(&p->vmas[p->nvmas], fd, f, len, PGROUNDDOWN(p->sz), prot, flags);
   p->nvmas++;
 
   return p->sz;
@@ -175,45 +173,9 @@ sys_munmap(void)
   uint64 addr;
   int len;
   struct proc* p = myproc();
-  pagetable_t pgtbl = p->pagetable;
 
   argaddr(0, &addr);
   argint(1, &len);
 
-  addr = PGROUNDDOWN(addr);
-  int bytes_deleted = (len / PGSIZE) * PGSIZE;
-
-  int idx = 0;
-  for (idx = 0; idx < 16; idx++) {
-    if (addr <= p->vmas[idx].va + p->vmas[idx].len && p->vmas[idx].va <= addr)
-      break;
-  }
-  if (idx >= 16 || idx < 0)
-    return -1;
-  
-  // map shared
-  if (p->vmas[idx].flags & 0x01) {
-    write_pages(p->vmas[idx].file, addr, bytes_deleted, addr - p->vmas[idx].va);
-  }
-  
-  rref(p->vmas[idx].file, bytes_deleted);
-  if (bytes_deleted >= p->vmas[idx].len) {
-    // DELETED ALL
-    if (refs(p->vmas[idx].file) <= 1)
-      p->ofile[p->vmas[idx].fd] = 0;
-    if (refs(p->vmas[idx].file))
-      fileclose(p->vmas[idx].file);
-    shift_vmas(p->vmas, idx, p->nvmas);
-    p->nvmas--;
-  }
-  else {
-    p->vmas[idx].len -= bytes_deleted;
-    if (p->vmas[idx].va == addr) {
-      p->vmas[idx].va += bytes_deleted;
-    }
-  }
-
-  uvmunmap(pgtbl, addr, len / PGSIZE, 1);
-
-  return 0;
+  return unmap(p, p->pagetable, addr, len);
 }

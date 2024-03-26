@@ -180,7 +180,7 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
-void rref(struct file* f, int off)
+void increase_offset(struct file* f, int off)
 {
   f->off += off;
 }

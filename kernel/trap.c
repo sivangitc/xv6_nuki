@@ -229,39 +229,43 @@ devintr()
 }
 
 
-
-
+int get_vma_index(struct vma vmas[], uint64 va)
+{
+  for (int idx = 0; idx < 16; idx++) {
+    if (vmas[idx].va <= va && va < vmas[idx].va + vmas[idx].len)
+      return idx;
+  }
+  return -1;
+}
 
 int cybre(pagetable_t pgtbl, struct vma vmas[])
 {
   uint64 va = r_stval();
   va = PGROUNDDOWN(va);
 
-  // index in vma array
-  int idx = 0;
-  for (idx = 0; idx < 16; idx++) {
-    if (vmas[idx].va <= va && va < vmas[idx].va + vmas[idx].len)
-      break;
-  }
-  if (idx >= 16) {
+  int idx = get_vma_index(vmas, va);
+  if (idx == -1) {
     printf("NOT GOOD!\n");
     return -1;
   }
 
   char* mem;
 
-  mem = kalloc();
+  // physical page
+  mem = kalloc(); 
   if(mem == 0){
     uvmdealloc(pgtbl, va, va);
     return -1;
   }
   
+  // replace the lazy filling
   if(mappages(pgtbl, va, PGSIZE, (uint64)mem, PTE_R|PTE_U|(vmas[idx].perm << 1)) != 0){
     kfree(mem);
     uvmdealloc(pgtbl, va, va);
     return -1;
   }
 
+  // copy file -> physical page
   int offset = va - vmas[idx].va;
   read_page(mem, vmas[idx].file, vmas[idx].len, va, offset);
 

@@ -35,9 +35,9 @@ int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
 int             read_page(char* mem, struct file* f, int n, uint64 va, int offset);
 int             write_pages(struct file *f, uint64 addr, int n, int offset);
-int get_prot(struct file* f);
-void rref(struct file* f, int );
-int refs(struct file* f);
+int             get_prot(struct file* f);
+void            increase_offset(struct file* f, int );
+int             refs(struct file* f);
 
 // fs.c
 void            fsinit(int);
@@ -111,6 +111,9 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+int             unmap(struct proc* p, pagetable_t pgtbl, uint64 va, int len);
+void            set_vma(struct vma* vma, 
+                    int fd, struct file* file, int len, uint64 va, int perm, int flags);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -152,6 +155,7 @@ void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
 void            usertrapret(void);
+int             get_vma_index(struct vma vmas[], uint64 va);
 
 // uart.c
 void            uartinit(void);
